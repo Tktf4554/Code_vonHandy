@@ -1,0 +1,116 @@
+#include <Trade/Trade.mqh>
+CTrade trade;
+
+input double Lot1 = 0.2;
+input double Lot2 = 0.2;
+
+input int emaPeriod = 36;
+
+input int TP1 = 1000;
+input int SL1 = 1000;
+input int BE1trigger = 500;
+input int BEoffset = 50;
+
+input int TP2 = 500;
+input int SL2 = 1000;
+input int BE2trigger = 200;
+
+double buy1 = 0.0;
+double buy2 = 0.0;
+
+// อ่าน EMA36
+double GetEMA()
+{
+    double ema[];
+    int h = iMA(_Symbol, PERIOD_M15, emaPeriod, 0, MODE_EMA, PRICE_CLOSE);
+    if(CopyBuffer(h, 0, 0, 1, ema) > 0)
+        return ema[0];
+    return 0;
+}
+
+// มี BUY อยู่ไหม?
+bool HasBuy()
+{
+    for(int i=0; i<PositionsTotal(); i++)
+    {
+        if(PositionSelectByIndex(i))
+        {
+            if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY &&
+               PositionGetString(POSITION_SYMBOL) == _Symbol)
+            {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+// กันหน้าไม้
+void MoveBreakEven(double priceOpen, ulong ticket, int trigger)
+{
+    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+    double sl = PositionGetDouble(POSITION_SL);
+
+    if(bid - priceOpen >= trigger * _Point)
+    {
+        double newSL = priceOpen + BEoffset * _Point;
+        if(newSL > sl)
+            trade.PositionModify(ticket, newSL, PositionGetDouble(POSITION_TP));
+    }
+}
+
+void OnTick()
+{
+    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+    double ema = GetEMA();
+
+    // ถ้าไม่มีไม้ → reset ตัวแปร
+    if(PositionsTotal() == 0)
+    {
+        buy1 = 0;
+        buy2 = 0;
+    }
+
+    // เปิดไม้แรก
+    if(PositionsTotal() == 0 && bid <= ema)
+    {
+        trade.Buy(Lot1, _Symbol, ask,
+                  ask - SL1 * _Point,
+                  ask + TP1 * _Point);
+
+        buy1 = ask;   // เก็บราคาเข้า
+        return;
+    }
+
+    // วนหาทุกตำแหน่งเพื่อ break-even
+    for(int i=0; i<PositionsTotal(); i++)
+    {
+        if(PositionSelectByIndex(i))
+        {
+            ulong ticket = PositionGetInteger(POSITION_TICKET);
+            double openP = PositionGetDouble(POSITION_PRICE_OPEN);
+
+            // กันหน้าไม้แรก
+            if(openP == buy1)
+                MoveBreakEven(buy1, ticket, BE1trigger);
+
+            // กันหน้าไม้สอง
+            if(openP == buy2)
+                MoveBreakEven(buy2, ticket, BE2trigger);
+        }
+    }
+
+    // เปิดไม้ 2 ถ้าราคาลง 500 จุด
+    if(buy1 > 0 && buy2 == 0)
+    {
+        if(bid <= buy1 - 500 * _Point)
+        {
+            trade.Buy(Lot2, _Symbol, ask,
+                      ask - SL2 * _Point,
+                      ask + TP2 * _Point);
+
+            buy2 = ask;
+        }
+    }
+}
