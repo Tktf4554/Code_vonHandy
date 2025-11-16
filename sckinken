@@ -1,9 +1,9 @@
 #include <Trade/Trade.mqh>
 CTrade trade;
 
-input double lots1            = 0.2;    // ไม้แรก
-input double lots2            = 0.2;    // ไม้สอง
-input int emaPeriod           = 36;     // EMA36
+input double lots1            = 0.2;    
+input double lots2            = 0.2;    
+input int emaPeriod           = 36;     
 input int tpFirst             = 1000;
 input int slFirst             = 1000;
 input int breakEvenFirst      = 500;
@@ -49,20 +49,39 @@ bool IsBuySignal()
     double ema = GetEMA(emaPeriod,0);
     double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
     Print("Bid=", bid, " EMA36=", ema); // debug
-    return (bid >= ema - 0.5 && bid <= ema + 0.5); // ยืด ±0.5 จุด
+    return (bid >= ema - 0.5 && bid <= ema + 0.5);
+}
+
+// ตรวจว่าไม้แรกยังค้างอยู่หรือไม่
+bool IsFirstBuyOpen()
+{
+    for(int i=0;i<PositionsTotal();i++)
+    {
+        if(PositionSelectByIndex(i))
+        {
+            if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY)
+            {
+                double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+                if(openPrice == lastBuyPrice1)
+                    return true; // ไม้แรกยังเปิดอยู่
+            }
+        }
+    }
+    return false;
 }
 
 void OnTick()
 {
     double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
 
-    // เปิดไม้แรก
-    if(lastBuyPrice1 == 0 && IsBuySignal())
+    // เปิดไม้แรก ถ้าไม้แรกยังไม่เปิด
+    if(!IsFirstBuyOpen() && IsBuySignal())
     {
         double price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
         if(trade.Buy(lots1, _Symbol, price, price - slFirst*_Point, price + tpFirst*_Point))
         {
             lastBuyPrice1 = price;
+            lastBuyPrice2 = 0; // รีเซ็ตไม้สอง
             Print("เปิดไม้แรก Buy ที่ ", price);
         }
     }
