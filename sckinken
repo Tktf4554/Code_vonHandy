@@ -1,26 +1,28 @@
 #include <Trade/Trade.mqh>
 CTrade trade;
 
-input double lots1            = 0.2;          
-input double lots2            = 0.2;          
-input int emaPeriod           = 36;          
-input int tpFirst             = 1000;      
-input int slFirst             = 1000;      
-input int breakEvenFirst      = 500;       
-input int breakEvenOffset     = 50;       
+input double lots1            = 0.2;    // ไม้แรก
+input double lots2            = 0.2;    // ไม้สอง
+input int emaPeriod           = 36;     // EMA36
+input int tpFirst             = 1000;
+input int slFirst             = 1000;
+input int breakEvenFirst      = 500;
+input int breakEvenOffset     = 50;
 
-input int tpAddOn             = 500;       
-input int slAddOn             = 1000;      
-input int breakEvenAddOn2     = 200;       
+input int tpAddOn             = 500;
+input int slAddOn             = 1000;
+input int breakEvenAddOn2     = 200;
 
 double lastBuyPrice1 = 0;
 double lastBuyPrice2 = 0;
 
 // อ่าน EMA36
-double GetEMA(int period, int shift)
+double GetEMA(int period,int shift)
 {
+    static int handle = -1;
+    if(handle < 0)
+        handle = iMA(_Symbol, PERIOD_M15, period, 0, MODE_EMA, PRICE_CLOSE);
     double buffer[];
-    int handle = iMA(_Symbol, PERIOD_M15, period, 0, MODE_EMA, PRICE_CLOSE);
     if(CopyBuffer(handle,0,shift,1,buffer)>0)
         return buffer[0];
     return 0;
@@ -46,7 +48,8 @@ bool IsBuySignal()
 {
     double ema = GetEMA(emaPeriod,0);
     double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-    return (bid >= ema); // เปิด Buy ถ้าแตะ EMA36
+    Print("Bid=", bid, " EMA36=", ema); // debug
+    return (bid >= ema - 0.5 && bid <= ema + 0.5); // ยืด ±0.5 จุด
 }
 
 void OnTick()
@@ -54,11 +57,14 @@ void OnTick()
     double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
 
     // เปิดไม้แรก
-    if(IsBuySignal())
+    if(lastBuyPrice1 == 0 && IsBuySignal())
     {
         double price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-        trade.Buy(lots1, _Symbol, price, price - slFirst*_Point, price + tpFirst*_Point);
-        lastBuyPrice1 = price;
+        if(trade.Buy(lots1, _Symbol, price, price - slFirst*_Point, price + tpFirst*_Point))
+        {
+            lastBuyPrice1 = price;
+            Print("เปิดไม้แรก Buy ที่ ", price);
+        }
     }
 
     // ปรับ SL กันหน้าไม้ไม้แรกและไม้สอง
@@ -79,7 +85,10 @@ void OnTick()
     if(lastBuyPrice1 > 0 && lastBuyPrice2 == 0 && bid <= lastBuyPrice1 - 500*_Point)
     {
         double price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-        trade.Buy(lots2, _Symbol, price, price - slAddOn*_Point, price + tpAddOn*_Point);
-        lastBuyPrice2 = price;
+        if(trade.Buy(lots2, _Symbol, price, price - slAddOn*_Point, price + tpAddOn*_Point))
+        {
+            lastBuyPrice2 = price;
+            Print("เปิดไม้สอง Buy ที่ ", price);
+        }
     }
 }
