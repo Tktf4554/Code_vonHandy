@@ -44,13 +44,14 @@ void OnTick()
 {
     double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
 
-    // เปิดไม้แรกเมื่อราคาลงมาแตะ EMA36
-    if(lastBuyPrice1 == 0 && bid <= GetEMA(emaPeriod,0))
+    // เปิดไม้แรกเมื่อราคาลงมาแตะ EMA36 และ bid ไม่ต่ำกว่า EMA36
+    double ema = GetEMA(emaPeriod,0);
+    if(lastBuyPrice1 == 0 && bid <= ema && bid >= ema) // bid = EMA36
     {
         double price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
         trade.Buy(lots, _Symbol, price, price - slFirst*_Point, price + tpFirst*_Point);
         lastBuyPrice1 = price;
-        lastBuyPrice2 = 0; // รีเซ็ตไม้2
+        lastBuyPrice2 = 0; // รีเซ็ตไม้สอง
     }
 
     // ปรับ SL กันหน้าไม้ไม้แรกและไม้สอง
