@@ -1,18 +1,21 @@
 #include <Trade/Trade.mqh>
 CTrade trade;
 
-input double lots             = 0.01;   // ขนาดล็อต
-input int emaPeriod           = 36;     // EMA36
-input int tpFirst             = 1000;   // TP ไม้แรก
-input int slFirst             = 1000;   // SL ไม้แรก
-input int breakEvenTrigger    = 500;    // จุดขึ้นไปเพื่อกันหน้าไม้
-input int breakEvenOffset     = 50;     // SL เลื่อนห่างจากจุดเข้า
-input int tpAddOn             = 500;    // TP ไม้ถัดไป
-input int slAddOn             = 1000;   // SL ไม้ถัดไป
+input double lots             = 0.01;
+input int emaPeriod           = 36;
+input int tpFirst             = 1000;
+input int slFirst             = 1000;
+input int breakEvenFirst      = 500;  // SL กันหน้าไม้ไม้แรก
+input int breakEvenOffset     = 50;   // SL เลื่อนห่างจุดเข้า
 
-double lastBuyPrice = 0; // เก็บราคาไม้แรก
+input int tpAddOn             = 500;
+input int slAddOn             = 1000;
+input int breakEvenAddOn2     = 200;  // SL กันหน้าไม้ไม้สอง
 
-// ฟังก์ชันอ่าน EMA36
+double lastBuyPrice1 = 0;
+double lastBuyPrice2 = 0;
+
+// อ่าน EMA36
 double GetEMA(int period, int shift)
 {
     int handle = iMA(_Symbol, PERIOD_M15, period, 0, MODE_EMA, PRICE_CLOSE);
@@ -22,86 +25,53 @@ double GetEMA(int period, int shift)
     return buffer[0];
 }
 
-// ฟังก์ชันอ่าน MACD
-double GetMACDMain(int fast, int slow, int signal, int shift)
+// SL กันหน้าไม้
+void BreakEven(double priceOpen, ulong ticket, int trigger)
 {
-    int handle = iMACD(_Symbol, PERIOD_M15, fast, slow, signal, PRICE_CLOSE);
-    double buffer[];
-    if(CopyBuffer(handle, 0, shift, 1, buffer) < 0)
-        return 0;
-    return buffer[0];
-}
-
-double GetMACDSignal(int fast, int slow, int signal, int shift)
-{
-    int handle = iMACD(_Symbol, PERIOD_M15, fast, slow, signal, PRICE_CLOSE);
-    double buffer[];
-    if(CopyBuffer(handle, 1, shift, 1, buffer) < 0)
-        return 0;
-    return buffer[0];
-}
-
-// ตรวจสัญญาณ Buy ไม้แรก (EMA + MACD ตัดขึ้น)
-bool IsBuySignalFirst()
-{
-    double ema = GetEMA(emaPeriod, 0);
     double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-    
-    double macdMain = GetMACDMain(12,26,9,1);
-    double macdSignal = GetMACDSignal(12,26,9,1);
-    
-    double macdMainPrev = GetMACDMain(12,26,9,2);
-    double macdSignalPrev = GetMACDSignal(12,26,9,2);
-    
-    bool macdCrossUp = (macdMainPrev < macdSignalPrev) && (macdMain > macdSignal);
-    
-    return (bid <= ema) && macdCrossUp;
-}
+    double slCurrent = PositionGetDouble(POSITION_SL);
+    double distance = bid - priceOpen;
 
-// ปรับ SL กันหน้าไม้
-void BreakEvenSL()
-{
-    for(int i=0; i<PositionsTotal(); i++)
+    if(distance >= trigger * _Point)
     {
-        ulong ticket = PositionGetTicket(i);
-        if(PositionSelectByTicket(ticket))
-        {
-            double priceOpen = PositionGetDouble(POSITION_PRICE_OPEN);
-            double slCurrent = PositionGetDouble(POSITION_SL);
-            double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-            
-            double distance = bid - priceOpen;
-            if(distance >= breakEvenTrigger * _Point)
-            {
-                double newSL = priceOpen + breakEvenOffset * _Point;
-                if(newSL > slCurrent)
-                    trade.PositionModify(ticket, newSL, PositionGetDouble(POSITION_TP));
-            }
-        }
+        double newSL = priceOpen + breakEvenOffset * _Point;
+        if(newSL > slCurrent)
+            trade.PositionModify(ticket, newSL, PositionGetDouble(POSITION_TP));
     }
 }
 
 void OnTick()
 {
     double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-    
-    // เปิด Buy ไม้แรก
-    if(lastBuyPrice == 0 && IsBuySignalFirst())
+
+    // เปิดไม้แรก
+    if(lastBuyPrice1 == 0 && bid <= GetEMA(emaPeriod,0))
     {
         double price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
         trade.Buy(lots, _Symbol, price, price - slFirst*_Point, price + tpFirst*_Point);
-        lastBuyPrice = price;
+        lastBuyPrice1 = price;
+        lastBuyPrice2 = 0; // รีเซ็ตไม้2
     }
-    
-    // กันหน้าไม้ไม้แรก
-    if(lastBuyPrice > 0)
-        BreakEvenSL();
-    
-    // เปิด Buy เพิ่มถ้าราคาลง 500 จุดจากไม้แรก
-    if(lastBuyPrice > 0 && (bid <= lastBuyPrice - 500*_Point))
+
+    // ปรับ SL กันหน้าไม้ไม้แรกและไม้สอง
+    for(int i=0;i<PositionsTotal();i++)
+    {
+        ulong ticket = PositionGetTicket(i);
+        if(PositionSelectByTicket(ticket))
+        {
+            double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+            if(openPrice == lastBuyPrice1)
+                BreakEven(lastBuyPrice1, ticket, breakEvenFirst);
+            if(openPrice == lastBuyPrice2)
+                BreakEven(lastBuyPrice2, ticket, breakEvenAddOn2);
+        }
+    }
+
+    // เปิดไม้สอง ถ้าราคาลง 500 จุดจากไม้แรก
+    if(lastBuyPrice1 > 0 && lastBuyPrice2 == 0 && bid <= lastBuyPrice1 - 500*_Point)
     {
         double price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
         trade.Buy(lots, _Symbol, price, price - slAddOn*_Point, price + tpAddOn*_Point);
-        lastBuyPrice = price; // อัปเดตไม้ล่าสุด
+        lastBuyPrice2 = price;
     }
 }
