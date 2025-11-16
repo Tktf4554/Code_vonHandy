@@ -4,17 +4,17 @@ CTrade trade;
 input double lots1            = 0.2;    
 input double lots2            = 0.2;    
 input int emaPeriod           = 36;     
-input int tpFirst             = 1000;
-input int slFirst             = 1000;
-input int breakEvenFirst      = 500;
-input int breakEvenOffset     = 50;
+input double tpFirst          = 1000;   
+input double slFirst          = 1000;   
+input double breakEvenFirst   = 500;   
+input double breakEvenOffset  = 50;    
 
-input int tpAddOn             = 500;
-input int slAddOn             = 1000;
-input int breakEvenAddOn2     = 200;
+input double tpAddOn          = 500;    
+input double slAddOn          = 1000;   
+input double breakEvenAddOn2  = 200;    
 
-double lastBuyPrice1 = 0;
-double lastBuyPrice2 = 0;
+double lastBuyPrice1 = 0.0;
+double lastBuyPrice2 = 0.0;
 
 // อ่าน EMA36
 double GetEMA(int period,int shift)
@@ -29,7 +29,7 @@ double GetEMA(int period,int shift)
 }
 
 // SL กันหน้าไม้
-void BreakEven(double priceOpen, ulong ticket, int trigger, int offset)
+void BreakEven(double priceOpen, ulong ticket, double trigger, double offset)
 {
     double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
     double slCurrent = PositionGetDouble(POSITION_SL);
@@ -39,7 +39,10 @@ void BreakEven(double priceOpen, ulong ticket, int trigger, int offset)
     {
         double newSL = priceOpen + offset * _Point;
         if(newSL > slCurrent)
+        {
             trade.PositionModify(ticket, newSL, PositionGetDouble(POSITION_TP));
+            Print("ปรับ SL กันหน้าไม้: Ticket=", ticket, " SL=", newSL);
+        }
     }
 }
 
@@ -48,13 +51,14 @@ bool IsBuySignal()
 {
     double ema = GetEMA(emaPeriod,0);
     double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-    Print("Bid=", bid, " EMA36=", ema); // debug
+    Print("Bid=", bid, " EMA36=", ema);
     return (bid >= ema - 0.5 && bid <= ema + 0.5);
 }
 
-// ตรวจว่าไม้แรกยังค้างอยู่หรือไม่
+// ตรวจว่าไม้แรกยังเปิดอยู่หรือไม่
 bool IsFirstBuyOpen()
 {
+    double tolerance = 5 * _Point; // ±5 จุด
     for(int i=0;i<PositionsTotal();i++)
     {
         if(PositionSelectByIndex(i))
@@ -62,7 +66,7 @@ bool IsFirstBuyOpen()
             if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY)
             {
                 double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
-                if(openPrice == lastBuyPrice1)
+                if(MathAbs(openPrice - lastBuyPrice1) <= tolerance)
                     return true; // ไม้แรกยังเปิดอยู่
             }
         }
@@ -74,7 +78,7 @@ void OnTick()
 {
     double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
 
-    // เปิดไม้แรก ถ้าไม้แรกยังไม่เปิด
+    // เปิดไม้แรก
     if(!IsFirstBuyOpen() && IsBuySignal())
     {
         double price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
@@ -89,13 +93,13 @@ void OnTick()
     // ปรับ SL กันหน้าไม้ไม้แรกและไม้สอง
     for(int i=0;i<PositionsTotal();i++)
     {
-        ulong ticket = PositionGetTicket(i);
-        if(PositionSelectByTicket(ticket))
+        if(PositionSelectByIndex(i))
         {
+            ulong ticket = PositionGetTicket(i);
             double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
-            if(openPrice == lastBuyPrice1)
+            if(MathAbs(openPrice - lastBuyPrice1) <= 5*_Point)
                 BreakEven(lastBuyPrice1, ticket, breakEvenFirst, breakEvenOffset);
-            if(openPrice == lastBuyPrice2)
+            else if(MathAbs(openPrice - lastBuyPrice2) <= 5*_Point)
                 BreakEven(lastBuyPrice2, ticket, breakEvenAddOn2, breakEvenOffset);
         }
     }
