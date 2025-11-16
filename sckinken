@@ -2,27 +2,40 @@
 CTrade trade;
 
 input double lots             = 0.01;
-input int emaPeriod           = 36;
+input int emaFast             = 36;     // EMA36
+input int emaSlow             = 200;    // EMA200
+
 input int tpFirst             = 1000;
 input int slFirst             = 1000;
-input int breakEvenFirst      = 500;  // SL กันหน้าไม้ไม้แรก
-input int breakEvenOffset     = 50;   // SL เลื่อนห่างจุดเข้า
+input int breakEvenFirst      = 500;
+input int breakEvenOffset     = 50;
 
 input int tpAddOn             = 500;
 input int slAddOn             = 1000;
-input int breakEvenAddOn2     = 200;  // SL กันหน้าไม้ไม้สอง
+input int breakEvenAddOn2     = 200;
 
 double lastBuyPrice1 = 0;
 double lastBuyPrice2 = 0;
 
-// อ่าน EMA36
+// อ่าน EMA
 double GetEMA(int period, int shift)
 {
-    int handle = iMA(_Symbol, PERIOD_M15, period, 0, MODE_EMA, PRICE_CLOSE);
     double buffer[];
-    if(CopyBuffer(handle, 0, shift, 1, buffer) < 0)
-        return 0;
-    return buffer[0];
+    int handle = iMA(_Symbol, PERIOD_M15, period, 0, MODE_EMA, PRICE_CLOSE);
+    if(CopyBuffer(handle,0,shift,1,buffer)>0)
+        return buffer[0];
+    return 0;
+}
+
+// ตรวจ EMA36 ตัด EMA200 ขึ้น
+bool IsEMACrossUp()
+{
+    double emaFastPrev = GetEMA(emaFast,1);
+    double emaSlowPrev = GetEMA(emaSlow,1);
+    double emaFastNow  = GetEMA(emaFast,0);
+    double emaSlowNow  = GetEMA(emaSlow,0);
+
+    return (emaFastPrev < emaSlowPrev) && (emaFastNow > emaSlowNow);
 }
 
 // SL กันหน้าไม้
@@ -44,8 +57,8 @@ void OnTick()
 {
     double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
 
-    // เปิดไม้แรก
-    if(lastBuyPrice1 == 0 && bid <= GetEMA(emaPeriod,0))
+    // เปิดไม้แรก ถ้า EMA36 ตัด EMA200 ขึ้น
+    if(lastBuyPrice1 == 0 && IsEMACrossUp())
     {
         double price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
         trade.Buy(lots, _Symbol, price, price - slFirst*_Point, price + tpFirst*_Point);
