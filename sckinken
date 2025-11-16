@@ -1,0 +1,14 @@
+void OnTick()
+{
+   // ถ้ามีออเดอร์ค้างอยู่ → ไม่เปิดใหม่
+   if(PositionsTotal() > 0) return;
+
+   if(IsBuySignal())
+   {
+      double price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+
+      trade.Buy(lots, _Symbol, price,
+                price - stopLoss * _Point,
+                price + takeProfit * _Point);
+   }
+} 
