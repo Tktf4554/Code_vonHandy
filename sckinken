@@ -1,81 +1,107 @@
 #include <Trade/Trade.mqh>
 CTrade trade;
 
-input double lots           = 0.01;     // ขนาดล็อต
-input int emaPeriod         = 36;       // EMA 36
-input int takeProfit        = 3000;     // TP 3000 points
-input int stopLoss          = 1000;     // SL 1000 points
-input int breakevenTrigger  = 300;      // ราคาวิ่งไปกี่จุดถึงปรับ SL
-input int breakevenOffset   = 100;      // SL ปรับสูงกว่าจุดเข้า
-input double sellLots       = 0.01;     // ขนาด Sell สำหรับแก้ไม้
+input double lots             = 0.01;   // ขนาดล็อต
+input int emaPeriod           = 36;     // EMA36
+input int tpFirst             = 1000;   // TP ไม้แรก
+input int slFirst             = 1000;   // SL ไม้แรก
+input int breakEvenTrigger    = 500;    // จุดขึ้นไปเพื่อกันหน้าไม้
+input int breakEvenOffset     = 50;     // SL เลื่อนห่างจากจุดเข้า
+input int tpAddOn             = 500;    // TP ไม้ถัดไป
+input int slAddOn             = 1000;   // SL ไม้ถัดไป
 
-// อ่าน EMA36
+double lastBuyPrice = 0; // เก็บราคาไม้แรก
+
+// ฟังก์ชันอ่าน EMA36
 double GetEMA(int period, int shift)
 {
-   int handle = iMA(_Symbol, PERIOD_M15, period, 0, MODE_EMA, PRICE_CLOSE);
-   double buffer[];
-
-   if(CopyBuffer(handle, 0, shift, 1, buffer) < 0)
-      return 0;
-
-   return buffer[0];
+    int handle = iMA(_Symbol, PERIOD_M15, period, 0, MODE_EMA, PRICE_CLOSE);
+    double buffer[];
+    if(CopyBuffer(handle, 0, shift, 1, buffer) < 0)
+        return 0;
+    return buffer[0];
 }
 
-// เงื่อนไข Buy
-bool IsBuySignal()
+// ฟังก์ชันอ่าน MACD
+double GetMACDMain(int fast, int slow, int signal, int shift)
 {
-   double ema = GetEMA(emaPeriod, 0);
-   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+    int handle = iMACD(_Symbol, PERIOD_M15, fast, slow, signal, PRICE_CLOSE);
+    double buffer[];
+    if(CopyBuffer(handle, 0, shift, 1, buffer) < 0)
+        return 0;
+    return buffer[0];
+}
 
-   return (bid <= ema);
+double GetMACDSignal(int fast, int slow, int signal, int shift)
+{
+    int handle = iMACD(_Symbol, PERIOD_M15, fast, slow, signal, PRICE_CLOSE);
+    double buffer[];
+    if(CopyBuffer(handle, 1, shift, 1, buffer) < 0)
+        return 0;
+    return buffer[0];
+}
+
+// ตรวจสัญญาณ Buy ไม้แรก (EMA + MACD ตัดขึ้น)
+bool IsBuySignalFirst()
+{
+    double ema = GetEMA(emaPeriod, 0);
+    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+    
+    double macdMain = GetMACDMain(12,26,9,1);
+    double macdSignal = GetMACDSignal(12,26,9,1);
+    
+    double macdMainPrev = GetMACDMain(12,26,9,2);
+    double macdSignalPrev = GetMACDSignal(12,26,9,2);
+    
+    bool macdCrossUp = (macdMainPrev < macdSignalPrev) && (macdMain > macdSignal);
+    
+    return (bid <= ema) && macdCrossUp;
 }
 
 // ปรับ SL กันหน้าไม้
 void BreakEvenSL()
 {
-   for(int i=0; i<PositionsTotal(); i++)
-   {
-      ulong ticket = PositionGetTicket(i);
-      if(PositionSelectByTicket(ticket))
-      {
-         double priceOpen = PositionGetDouble(POSITION_PRICE_OPEN);
-         double slCurrent = PositionGetDouble(POSITION_SL);
-         double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-
-         double distance = bid - priceOpen;
-
-         if(distance >= breakevenTrigger * _Point)
-         {
-            double newSL = priceOpen + breakevenOffset * _Point;
-            if(newSL > slCurrent)
-               trade.PositionModify(ticket, newSL, PositionGetDouble(POSITION_TP));
-         }
-      }
-   }
-}
-
-// ฟังก์ชันเปิด Sell แก้ไม้
-void OpenSell()
-{
-   double price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   trade.Sell(sellLots, _Symbol, price, 0, 0); // Sell แบบไม่มี SL/TP
+    for(int i=0; i<PositionsTotal(); i++)
+    {
+        ulong ticket = PositionGetTicket(i);
+        if(PositionSelectByTicket(ticket))
+        {
+            double priceOpen = PositionGetDouble(POSITION_PRICE_OPEN);
+            double slCurrent = PositionGetDouble(POSITION_SL);
+            double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+            
+            double distance = bid - priceOpen;
+            if(distance >= breakEvenTrigger * _Point)
+            {
+                double newSL = priceOpen + breakEvenOffset * _Point;
+                if(newSL > slCurrent)
+                    trade.PositionModify(ticket, newSL, PositionGetDouble(POSITION_TP));
+            }
+        }
+    }
 }
 
 void OnTick()
 {
-   // ถ้ามีออเดอร์ Buy ค้างอยู่ → ไม่เปิด Buy เพิ่ม
-   if(PositionsTotal() == 0 && IsBuySignal())
-   {
-      double price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-      trade.Buy(lots, _Symbol, price,
-                price - stopLoss * _Point,
-                price + takeProfit * _Point);
-   }
-
-   // ปรับ SL กันหน้าไม้
-   if(PositionsTotal() > 0)
-      BreakEvenSL();
-
-   // ตัวอย่าง: เปิด Sell เพื่อแก้ไม้ กดปุ่มหรือเงื่อนไขอื่นก็ได้
-   // OpenSell(); // เอาเครื่องหมาย // ออกถ้าต้องการให้ EA เปิด Sell อัตโนมัติ
+    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+    
+    // เปิด Buy ไม้แรก
+    if(lastBuyPrice == 0 && IsBuySignalFirst())
+    {
+        double price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+        trade.Buy(lots, _Symbol, price, price - slFirst*_Point, price + tpFirst*_Point);
+        lastBuyPrice = price;
+    }
+    
+    // กันหน้าไม้ไม้แรก
+    if(lastBuyPrice > 0)
+        BreakEvenSL();
+    
+    // เปิด Buy เพิ่มถ้าราคาลง 500 จุดจากไม้แรก
+    if(lastBuyPrice > 0 && (bid <= lastBuyPrice - 500*_Point))
+    {
+        double price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+        trade.Buy(lots, _Symbol, price, price - slAddOn*_Point, price + tpAddOn*_Point);
+        lastBuyPrice = price; // อัปเดตไม้ล่าสุด
+    }
 }
